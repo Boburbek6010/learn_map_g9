@@ -17,6 +17,8 @@ class _CustomYandexMapState extends State<CustomYandexMap> {
   bool isLoading = false;
   late YandexMapController yandexMapController;
   List<MapObject> mapObjects = [];
+  double speed = 0;
+
 
   Future<Position> _determinePosition() async {
     isLoading = false;
@@ -91,15 +93,15 @@ class _CustomYandexMapState extends State<CustomYandexMap> {
     //     duration: 2,
     //   ),
     // );
-    putLabel();
+    putLabel(myPosition);
   }
   
-  void putLabel(){
+  void putLabel(Position position){
     PlacemarkMapObject placemarkMapObject = PlacemarkMapObject(
         mapId: const MapObjectId("myLocation"), 
       point: Point(
-        latitude: myPosition.latitude,
-        longitude: myPosition.longitude,
+        latitude: position.latitude,
+        longitude: position.longitude,
       ),
       opacity: 1,
       icon: PlacemarkIcon.single(
@@ -133,6 +135,75 @@ class _CustomYandexMapState extends State<CustomYandexMap> {
     setState(() {});
   }
 
+  Future<void> makeRoad(Position startPoint, Point endPoint)async{
+    // var resultSession = YandexBicycle.requestRoutes(
+    //     points: [
+    //       RequestPoint(
+    //           point: Point(
+    //             latitude: startPoint.latitude,
+    //             longitude: startPoint.longitude,
+    //           ),
+    //           requestPointType: RequestPointType.wayPoint
+    //       ),
+    //
+    //       RequestPoint(
+    //           point: endPoint,
+    //           requestPointType: RequestPointType.wayPoint
+    //       ),
+    //     ],
+    //      bicycleVehicleType: BicycleVehicleType.bicycle,
+    // );
+    var resultSession = YandexDriving.requestRoutes(
+      points: [
+        RequestPoint(
+            point: Point(
+              latitude: startPoint.latitude,
+              longitude: startPoint.longitude,
+            ),
+            requestPointType: RequestPointType.wayPoint
+        ),
+
+        RequestPoint(
+            point: endPoint,
+            requestPointType: RequestPointType.wayPoint
+        ),
+      ],
+      drivingOptions: const DrivingOptions(
+        routesCount: 1,
+        avoidTolls: false,
+        avoidPoorConditions: false,
+      ),
+    );
+    var result = await resultSession.result;
+    result.routes?.asMap().forEach((key, value) {
+      mapObjects.add(PolylineMapObject(
+          mapId: MapObjectId("route_$key"),
+          polyline: Polyline(points: value.geometry),
+        strokeColor: Colors.red,
+        strokeWidth: 3,
+      ),
+      );
+    });
+    setState(() {});
+  }
+
+
+  Future<void> goLive()async{
+    Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        distanceFilter: 0,
+      )
+    ).listen((position) {
+      putLabel(position);
+      speed = position.speed;
+      setState(() {});
+      log(position.speed.toString());
+      log(position.latitude.toString());
+      log(position.longitude.toString());
+    });
+  }
+
   @override
   void initState() {
     _determinePosition();
@@ -143,17 +214,39 @@ class _CustomYandexMapState extends State<CustomYandexMap> {
   Widget build(BuildContext context) {
     return Scaffold(
       body: isLoading
-          ? YandexMap(
-        // tiltGesturesEnabled: false,
-              // nightModeEnabled: true,
-              // mode2DEnabled: false,
-              // scrollGesturesEnabled: false,
-              // zoomGesturesEnabled: false,
-              // rotateGesturesEnabled: false,
-        mapObjects: mapObjects,
-              onMapTap: putLabelOnTap,
-              onMapCreated: onMapCreated,
-            )
+          ? Stack(
+        alignment: const Alignment(0, -0.9),
+            children: [
+              YandexMap(
+                      // tiltGesturesEnabled: false,
+                  // nightModeEnabled: true,
+                  // mode2DEnabled: false,
+                  // scrollGesturesEnabled: false,
+                  // zoomGesturesEnabled: false,
+                  // rotateGesturesEnabled: false,
+                      mapObjects: mapObjects,
+                  onMapTap: (endPoint){
+                    putLabelOnTap(endPoint);
+                    makeRoad(myPosition, endPoint);
+                  },
+                  onMapCreated: onMapCreated,
+                ),
+              Container(
+                height: 40,
+                  width: double.infinity,
+                  margin: const EdgeInsets.symmetric(horizontal: 100),
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(30),
+                    color: Colors.black,
+                  ),
+                  child: Text("Speed: ${speed.toStringAsFixed(2)} m/s", style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600
+                  ),)),
+            ],
+          )
           : const Center(
               child: CircularProgressIndicator(),
             ),
@@ -161,6 +254,13 @@ class _CustomYandexMapState extends State<CustomYandexMap> {
         mainAxisAlignment: MainAxisAlignment.end,
         mainAxisSize: MainAxisSize.min,
         children: [
+          FloatingActionButton(
+            onPressed: ()async{
+      await goLive();
+    },
+            child: const Icon(Icons.telegram),
+          ),
+          const SizedBox(height: 30,),
           FloatingActionButton(
             onPressed: () => yandexMapController.moveCamera(
               CameraUpdate.zoomIn()
